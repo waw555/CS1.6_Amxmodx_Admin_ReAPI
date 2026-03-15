@@ -22,7 +22,9 @@ new g_Colors[MAX_CLR][] = {"COL_WHITE", "COL_RED", "COL_GREEN", "COL_BLUE", "COL
 new g_Values[MAX_CLR][] = {{255, 255, 255}, {255, 0, 0}, {0, 255, 0}, {0, 0, 255}, {255, 255, 0}, {255, 0, 255}, {0, 255, 255}, {227, 96, 8}, {45, 89, 116}, {103, 44, 38}}
 new Float:g_Pos[4][] = {{0.0, 0.0}, {0.05, 0.55}, {-1.0, 0.2}, {-1.0, 0.7}}
 
+// Указатель на CVAR: определяет, показывать ли имя админа в сообщениях активности.
 new amx_show_activity;
+// Указатель на CVAR: задержка между @-сообщениями в say_team для защиты от флуда.
 new amx_flood_time;
 new g_AdminChatFlag = ADMIN_CHAT;
 
@@ -56,6 +58,9 @@ public plugin_init()
 	get_concmd(admin_chat_id, str, 0, g_AdminChatFlag, str, 0, -1)
 }
 
+/**
+ * Подключает CVAR антифлуда от плагина antiflood или создает резервный CVAR.
+ */
 public plugin_cfg()
 {
 	// check if cvar amx_flood_time exists (created by antiflood plugin)
@@ -69,6 +74,19 @@ public plugin_cfg()
 	}
 }
 
+/**
+ * Сбрасывает счетчики антифлуда для отключившегося игрока.
+ */
+public client_disconnected(id)
+{
+	g_Flooding[id] = 0.0
+	g_Flood[id] = 0
+}
+
+/**
+ * Обрабатывает команду `say`, начинающуюся с @, @@ или @@@, и выводит админское HUD-сообщение.
+ * Поддерживает необязательный цветовой префикс (@r, @g, @b, @y, @m, @c, @o).
+ */
 public cmdSayChat(id, level)
 {
 	if (!access(id, level))
@@ -172,6 +190,10 @@ public cmdSayChat(id, level)
 	return PLUGIN_HANDLED
 }
 
+/**
+ * Обрабатывает `say_team @message` и отправляет его только админам/игрокам с флагом админ-чата.
+ * Использует защиту от флуда на основе значения `amx_flood_time`.
+ */
 public cmdSayAdmin(id)
 {
 	new said[2]
@@ -231,6 +253,9 @@ public cmdSayAdmin(id)
 	return PLUGIN_HANDLED
 }
 
+/**
+ * Обрабатывает консольную команду `amx_chat` и отправляет сообщение подключенным администраторам.
+ */
 public cmdChat(id, level, cid)
 {
 	if (!cmd_access(id, level, cid, 2))
@@ -267,6 +292,9 @@ public cmdChat(id, level, cid)
 	return PLUGIN_HANDLED
 }
 
+/**
+ * Обрабатывает команду `amx_say` и отправляет сообщение всем игрокам в чат.
+ */
 public cmdSay(id, level, cid)
 {
 	if (!cmd_access(id, level, cid, 2))
@@ -288,6 +316,9 @@ public cmdSay(id, level, cid)
 	return PLUGIN_HANDLED
 }
 
+/**
+ * Обрабатывает команду `amx_psay` и отправляет приватное сообщение выбранному игроку.
+ */
 public cmdPsay(id, level, cid)
 {
 	if (!cmd_access(id, level, cid, 3))
@@ -308,6 +339,9 @@ public cmdPsay(id, level, cid)
 	get_user_name(id, name2, charsmax(name2))
 	userid = get_user_userid(id)
 	read_args(message, charsmax(message))
+
+	if (!message[length])
+		return PLUGIN_HANDLED
 	
 	if (message[0] == '"' && message[length] == '"') // HLSW fix
 	{
@@ -333,6 +367,10 @@ public cmdPsay(id, level, cid)
 	return PLUGIN_HANDLED
 }
 
+/**
+ * Обрабатывает HUD-команды рассылки `amx_tsay` и `amx_csay`.
+ * Поддерживает локализованные имена цветов и формат активности в зависимости от `amx_show_activity`.
+ */
 public cmdTsay(id, level, cid)
 {
 	if (!cmd_access(id, level, cid, 3))
@@ -349,6 +387,7 @@ public cmdTsay(id, level, cid)
 	
 	new found = 0, a = 0
 	new lang[3], langnum = get_langsnum()
+	copy(color2, charsmax(color2), g_Colors[0])
 
 	for (new i = 0; i < MAX_CLR; ++i)
 	{
@@ -366,6 +405,11 @@ public cmdTsay(id, level, cid)
 		}
 		if (found == 1)
 			break
+	}
+
+	if (!found)
+	{
+		copy(color2, charsmax(color2), g_Colors[a])
 	}
 	
 	new length = found ? (strlen(color) + 1) : 0
