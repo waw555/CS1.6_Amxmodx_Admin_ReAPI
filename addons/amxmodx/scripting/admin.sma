@@ -34,6 +34,41 @@ new PLUGINNAME[] = "AMX Mod X"
 
 new bool:g_CaseSensitiveName[MAX_PLAYERS + 1];
 
+bool:is_valid_ipv4(const ip[])
+{
+	new len = strlen(ip)
+
+	if (len < 7 || len > 15)
+		return false
+
+	new dots, digits
+
+	for (new i = 0; i < len; i++)
+	{
+		if (ip[i] == '.')
+		{
+			if (digits < 1 || digits > 3)
+				return false
+
+			dots++
+			digits = 0
+		}
+		else if (ip[i] >= '0' && ip[i] <= '9')
+		{
+			digits++
+
+			if (digits > 3)
+				return false
+		}
+		else
+		{
+			return false
+		}
+	}
+
+	return dots == 3 && digits >= 1 && digits <= 3
+}
+
 // pcvars
 new amx_mode;
 new amx_password_field;
@@ -175,29 +210,10 @@ public addadminfn(id, level, cid)
 	}
 	else if (idtype & ADMIN_IPADDR)
 	{
-		new len = strlen(arg)
-		new dots, chars
-		
-		for (new i = 0; i < len; i++)
+		if (!is_valid_ipv4(arg))
 		{
-			if (arg[i] == '.')
-			{
-				if (!chars || chars > 3)
-					break
-				
-				if (++dots > 3)
-					break
-				
-				chars = 0
-			} else {
-				chars++
-			}
-			
-			if (dots != 3 || !chars || chars > 3)
-			{
-				idtype |= ADMIN_LOOKUP
-				player = find_player("dh", arg)
-			}
+			idtype |= ADMIN_LOOKUP
+			player = find_player("dh", arg)
 		}
 	}
 	
@@ -489,10 +505,11 @@ public adminSql()
 			server_print("[AMXX] %L", LANG_SERVER, "SQL_LOADED_ADMINS", AdminCount)
 		}
 		
-		SQL_FreeHandle(query)
-		SQL_FreeHandle(sql)
-		SQL_FreeHandle(info)
 	}
+
+	SQL_FreeHandle(query)
+	SQL_FreeHandle(sql)
+	SQL_FreeHandle(info)
 	
 	return PLUGIN_HANDLED
 }
