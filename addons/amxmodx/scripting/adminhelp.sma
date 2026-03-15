@@ -47,13 +47,17 @@ public plugin_init()
 public OnConfigsExecuted()
 {
 	new const pointer = get_cvar_pointer("amx_nextmap");
+	new const timelimit = get_cvar_pointer("mp_timelimit");
 
 	if (pointer)
 	{
 		bind_pcvar_string(pointer, CvarNextmap, charsmax(CvarNextmap));
 	}
 
-	bind_pcvar_float(get_cvar_pointer("mp_timelimit"), CvarTimeLimit);
+	if (timelimit)
+	{
+		bind_pcvar_float(timelimit, CvarTimeLimit);
+	}
 }
 
 public client_putinserver(id)
@@ -126,24 +130,32 @@ ProcessHelp(id, start_argindex, bool:do_search, const main_command[], const sear
 		{
 			get_concmd(index, command, charsmax(command), command_flags, info, charsmax(info), user_flags, id, is_info_ml);
 
-			if (containi(command, search) != -1 && ++entries_found > start && (total_entries = entries_found) <= end)
+			if (containi(command, search) == -1)
 			{
+				continue;
+			}
+
+			++total_entries;
+
+			if (total_entries > start && total_entries <= end)
+			{
+				++entries_found;
+
 				if (is_info_ml)
 				{
 					LookupLangKey(info, charsmax(info), info, id);
 				}
 
-				console_print(id, "%3d: %s %s", entries_found, command, info);
+				console_print(id, "%3d: %s %s", total_entries, command, info);
 			}
 		}
 
-		if (!entries_found || entries_found > total_entries)
+		if (!total_entries)
 		{
 			console_print(id, "%l", "NO_MATCHING_RESULTS");
 			return PLUGIN_HANDLED;
 		}
 
-		index = entries_found;
 		clcmdsnum = total_entries;
 		end = min(end, clcmdsnum);
 	}
@@ -164,13 +176,13 @@ ProcessHelp(id, start_argindex, bool:do_search, const main_command[], const sear
 
 	console_print(id, "----- %l -----", "HELP_ENTRIES", start + 1, end, clcmdsnum);
 
-	formatex(command, charsmax(command), "%s%c%s", main_command, do_search ? " " : "", search);
+	formatex(command, charsmax(command), "%s%s%s", main_command, do_search ? " " : "", search);
 
 	if (end < clcmdsnum)
 	{
 		console_print(id, "----- %l -----", "HELP_USE_MORE", command, end + 1);
 	}
-	else if (start || index != clcmdsnum)
+	else if (start)
 	{
 		console_print(id, "----- %l -----", "HELP_USE_BEGIN", command);
 	}
