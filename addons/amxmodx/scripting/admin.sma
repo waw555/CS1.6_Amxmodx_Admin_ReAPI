@@ -34,6 +34,7 @@ new PLUGINNAME[] = "AMX Mod X"
 
 new bool:g_CaseSensitiveName[MAX_PLAYERS + 1];
 
+// Проверяет, что переданная строка соответствует формату IPv4-адреса.
 bool:is_valid_ipv4(const ip[])
 {
 	new len = strlen(ip)
@@ -69,11 +70,116 @@ bool:is_valid_ipv4(const ip[])
 	return dots == 3 && digits >= 1 && digits <= 3
 }
 
+// Проверяет, является ли год високосным.
+bool:is_leap_year(year)
+{
+	return ((year % 4 == 0 && year % 100 != 0) || (year % 400 == 0));
+}
+
+// Возвращает количество дней в переданном месяце указанного года.
+get_days_in_month(month, year)
+{
+	static const daysPerMonth[] = { 31,28,31,30,31,30,31,31,30,31,30,31 };
+
+	if (month == 2 && is_leap_year(year))
+		return 29;
+
+	return daysPerMonth[month - 1];
+}
+
+// Проверяет корректность даты в формате день/месяц/год.
+bool:is_valid_date(day, month, year)
+{
+	if (year < 1970 || month < 1 || month > 12)
+		return false;
+
+	new maxDay = get_days_in_month(month, year);
+	return day >= 1 && day <= maxDay;
+}
+
+// Преобразует дату в Unix-время (секунды от 01.01.1970 00:00:00).
+date_to_unix(day, month, year)
+{
+	new days;
+
+	for (new y = 1970; y < year; y++)
+	{
+		days += is_leap_year(y) ? 366 : 365;
+	}
+
+	for (new m = 1; m < month; m++)
+	{
+		days += get_days_in_month(m, year);
+	}
+
+	days += day - 1;
+	return days * 86400;
+}
+
+// Разбирает дату вида dd.mm.yyyy в отдельные целочисленные части.
+bool:parse_date_string(dateString[], &day, &month, &year)
+{
+	new buffer[24], tokenDay[8], tokenMonth[8], tokenYear[8];
+	copy(buffer, charsmax(buffer), dateString);
+	replace_all(buffer, charsmax(buffer), ".", " ");
+
+	if (parse(buffer, tokenDay, charsmax(tokenDay), tokenMonth, charsmax(tokenMonth), tokenYear, charsmax(tokenYear)) < 3)
+		return false;
+
+	day = str_to_num(tokenDay);
+	month = str_to_num(tokenMonth);
+	year = str_to_num(tokenYear);
+
+	return is_valid_date(day, month, year);
+}
+
+// Проверяет, что строка состоит только из цифр и может быть интерпретирована как количество дней.
+bool:is_numeric_string(value[])
+{
+	new len = strlen(value);
+
+	if (!len)
+		return false;
+
+	for (new i = 0; i < len; i++)
+	{
+		if (value[i] < '0' || value[i] > '9')
+			return false;
+	}
+
+	return true;
+}
+
+// Разбирает период доступа вида "dd.mm.yyyy - dd.mm.yyyy" в две Unix-метки времени.
+bool:parse_access_range(range[], &startUnix, &endUnix)
+{
+	if (contain(range, "-") == -1)
+		return false;
+
+	new buffer[64], left[24], right[24], day, month, year;
+	copy(buffer, charsmax(buffer), range);
+	strtok(buffer, left, charsmax(left), right, charsmax(right), '-');
+	trim(left);
+	trim(right);
+
+	if (!parse_date_string(left, day, month, year))
+		return false;
+
+	startUnix = date_to_unix(day, month, year);
+
+	if (!parse_date_string(right, day, month, year))
+		return false;
+
+	endUnix = date_to_unix(day, month, year) + 86399;
+	return endUnix >= startUnix;
+}
+
 // pcvars
 new amx_mode;
 new amx_password_field;
 new amx_default_access;
 
+// Инициализирует плагин, регистрирует cvar/команды и запускает первичную загрузку админов.
 public plugin_init()
 {
 #if defined USING_SQL
@@ -131,10 +237,14 @@ public plugin_init()
 	loadSettings(configsDir)					// Load admins accounts
 #endif
 }
+
+// Сбрасывает признак чувствительности к регистру для подключающегося игрока.
 public client_connect(id)
 {
 	g_CaseSensitiveName[id] = false;
 }
+
+// Консольная команда amx_addadmin: определяет тип идентификатора и добавляет администратора.
 public addadminfn(id, level, cid)
 {
 	if (!cmd_access(id, level, cid, 3))
@@ -277,6 +387,7 @@ public addadminfn(id, level, cid)
 	return PLUGIN_HANDLED
 }
 
+// Добавляет админа в users.ini (или SQL при соответствующей сборке), избегая дубликатов.
 AddAdmin(id, auth[], accessflags[], password[], flags[], comment[]="")
 {
 #if defined USING_SQL
@@ -368,45 +479,103 @@ AddAdmin(id, auth[], accessflags[], password[], flags[], comment[]="")
 
 }
 
+// Загружает администраторов из users.ini, обрабатывает период доступа и обновляет устаревший формат.
 loadSettings(szFilename[])
 {
-	new File=fopen(szFilename,"r");
-	
-	if (File)
-	{
-		new Text[512];
-		new Flags[32];
-		new Access[32]
-		new AuthData[44];
-		new Password[32];
-		
-		while (fgets(File, Text, charsmax(Text)))
-		{
-			trim(Text);
-			
-			// comment
-			if (Text[0]==';') 
-			{
-				continue;
-			}
-			
-			Flags[0]=0;
-			Access[0]=0;
-			AuthData[0]=0;
-			Password[0]=0;
-			
-			// not enough parameters
-			if (parse(Text,AuthData,charsmax(AuthData),Password,charsmax(Password),Access,charsmax(Access),Flags,charsmax(Flags)) < 2)
-			{
-				continue;
-			}
-			
-			admins_push(AuthData,Password,read_flags(Access),read_flags(Flags));
+	new line, len, text[512];
+	new flags[32], access[32], authData[44], password[32], accessPeriod[64];
 
-			AdminCount++;
+	while ((line = read_file(szFilename, line, text, charsmax(text), len)))
+	{
+		new lineIndex = line - 1;
+		trim(text);
+
+		if (!text[0] || text[0] == ';')
+			continue;
+
+		// Отделяем служебный комментарий, чтобы не потерять его при возможной перезаписи строки.
+		new parsedPart[512], inlineComment[192];
+		copy(parsedPart, charsmax(parsedPart), text);
+		new commentPos = contain(parsedPart, ";");
+
+		if (commentPos != -1)
+		{
+			new outPos;
+			for (new i = commentPos + 1; parsedPart[i] && outPos < charsmax(inlineComment); i++)
+			{
+				inlineComment[outPos++] = parsedPart[i];
+			}
+			inlineComment[outPos] = '^0';
+			parsedPart[commentPos] = '^0';
+			trim(parsedPart);
+			trim(inlineComment);
 		}
-		
-		fclose(File);
+		else
+		{
+			inlineComment[0] = '^0';
+		}
+
+		flags[0] = '^0';
+		access[0] = '^0';
+		authData[0] = '^0';
+		password[0] = '^0';
+		accessPeriod[0] = '^0';
+
+		new parsed = parse(parsedPart, authData, charsmax(authData), password, charsmax(password), access, charsmax(access), flags, charsmax(flags), accessPeriod, charsmax(accessPeriod));
+		if (parsed < 4)
+			continue;
+
+		if (parsed < 5)
+			copy(accessPeriod, charsmax(accessPeriod), "0");
+
+		new bool:allowAccess = true;
+		new bool:rewriteLine = false;
+
+		if (!equal(accessPeriod, "0"))
+		{
+			if (is_numeric_string(accessPeriod))
+			{
+				// Если указан срок в днях, сразу разворачиваем его в даты начала/окончания и сохраняем в файл.
+				new days = str_to_num(accessPeriod);
+				new now = get_systime();
+				new startDate[16], endDate[16];
+				format_time(startDate, charsmax(startDate), "%d.%m.%Y", now);
+				format_time(endDate, charsmax(endDate), "%d.%m.%Y", now + ((days > 0 ? (days - 1) : 0) * 86400));
+				formatex(accessPeriod, charsmax(accessPeriod), "%s - %s", startDate, endDate);
+				rewriteLine = true;
+			}
+			else
+			{
+				// Для диапазона дат проверяем, что текущий момент находится внутри периода действия прав.
+				new startUnix, endUnix;
+				if (parse_access_range(accessPeriod, startUnix, endUnix))
+				{
+					new now = get_systime();
+					allowAccess = (now >= startUnix && now <= endUnix);
+				}
+				else
+				{
+					allowAccess = false;
+				}
+			}
+		}
+
+		if (rewriteLine)
+		{
+			new rewritten[512];
+			if (inlineComment[0])
+				formatex(rewritten, charsmax(rewritten), "^"%s^" ^"%s^" ^"%s^" ^"%s^" ^"%s^" ; %s", authData, password, access, flags, accessPeriod, inlineComment);
+			else
+				formatex(rewritten, charsmax(rewritten), "^"%s^" ^"%s^" ^"%s^" ^"%s^" ^"%s^"", authData, password, access, flags, accessPeriod);
+
+			write_file(szFilename, rewritten, lineIndex);
+		}
+
+		if (!allowAccess)
+			continue;
+
+		admins_push(authData, password, read_flags(access), read_flags(flags));
+		AdminCount++;
 	}
 
 	if (AdminCount == 1)
@@ -422,6 +591,7 @@ loadSettings(szFilename[])
 }
 
 #if defined USING_SQL
+// Загружает администраторов из SQL-базы (резервный путь — users.ini).
 public adminSql()
 {
 	new table[32], error[128], type[12], errno
@@ -514,6 +684,7 @@ public adminSql()
 }
 #endif
 
+// Перезагружает список администраторов из источника (users.ini или SQL).
 public cmdReload(id, level, cid)
 {
 	if (!cmd_access(id, level, cid, 1))
@@ -570,6 +741,7 @@ public cmdReload(id, level, cid)
 	return PLUGIN_HANDLED
 }
 
+// Ищет подходящую учётную запись администратора и применяет права при успешной проверке.
 getAccess(id, name[], authid[], ip[], password[])
 {
 	new index = -1
@@ -586,6 +758,7 @@ getAccess(id, name[], authid[], ip[], password[])
 	Count=admins_num();
 	for (new i = 0; i < Count; ++i)
 	{
+		// Последовательно проверяем все типы привязки: steamid, ip или имя/тег.
 		Flags=admins_lookup(i,AdminProp_Flags);
 		admins_lookup(i,AdminProp_Auth,AuthData,charsmax(AuthData));
 		
@@ -601,6 +774,7 @@ getAccess(id, name[], authid[], ip[], password[])
 		{
 			new c = strlen(AuthData)
 			
+			// Поддержка префикса IP: запись с точкой на конце работает как маска подсети.
 			if (AuthData[c - 1] == '.')		/* check if this is not a xxx.xxx. format */
 			{
 				if (equal(AuthData, ip, c))
@@ -722,6 +896,7 @@ getAccess(id, name[], authid[], ip[], password[])
 	return result
 }
 
+// Проверяет и назначает права конкретному игроку по текущим данным (ник/steamid/ip/пароль).
 accessUser(id, name[] = "")
 {
 	remove_user_flags(id)
@@ -769,6 +944,7 @@ accessUser(id, name[] = "")
 	return PLUGIN_CONTINUE
 }
 
+// Отслеживает смену ника и повторно валидирует админские права при необходимости.
 public client_infochanged(id)
 {
 	if (!is_user_connected(id) || !get_pcvar_num(amx_mode))
@@ -798,9 +974,11 @@ public client_infochanged(id)
 	return PLUGIN_CONTINUE
 }
 
+// Вызывается после авторизации игрока и запускает проверку прав.
 public client_authorized(id)
 	return get_pcvar_num(amx_mode) ? accessUser(id) : PLUGIN_CONTINUE
 
+// Обрабатывает вход игрока на сервер (в том числе listen-сервер) и при необходимости назначает права.
 public client_putinserver(id)
 {
 	if (!is_dedicated_server() && id == 1)
