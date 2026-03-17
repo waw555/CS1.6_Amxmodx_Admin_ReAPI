@@ -33,6 +33,44 @@ new PLUGINNAME[] = "AMX Mod X"
 #define ADMIN_NAME		(1<<4)
 
 new bool:g_CaseSensitiveName[MAX_PLAYERS + 1];
+<<<<<<< HEAD
+=======
+
+bool:is_valid_ipv4(const ip[])
+{
+	new len = strlen(ip)
+
+	if (len < 7 || len > 15)
+		return false
+
+	new dots, digits
+
+	for (new i = 0; i < len; i++)
+	{
+		if (ip[i] == '.')
+		{
+			if (digits < 1 || digits > 3)
+				return false
+
+			dots++
+			digits = 0
+		}
+		else if (ip[i] >= '0' && ip[i] <= '9')
+		{
+			digits++
+
+			if (digits > 3)
+				return false
+		}
+		else
+		{
+			return false
+		}
+	}
+
+	return dots == 3 && digits >= 1 && digits <= 3
+}
+>>>>>>> parent of 08bb526 (Merge pull request #2 from waw555/codex/add-comments-to-functions-in-admin.sma)
 
 // pcvars
 new amx_mode;
