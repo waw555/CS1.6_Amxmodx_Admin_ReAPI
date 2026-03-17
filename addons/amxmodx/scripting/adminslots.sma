@@ -14,11 +14,16 @@
 #include <amxmodx>
 #include <amxmisc>
 
+// Кэш значений cvar для логики резерва (обновляется при старте и через hook).
 new CvarReservation;
 new CvarHideSlots;
 
-new CvarHandleMaxVisiblePlayers;
+// Хэндлы cvar.
+new CvarHandleReservation; // amx_reservation: количество зарезервированных слотов.
+new CvarHandleHideSlots; // amx_hideslots: скрывать резервные слоты в браузере серверов.
+new CvarHandleMaxVisiblePlayers; // sv_visiblemaxplayers: видимое число слотов в браузере серверов.
 
+// Точка входа плагина: регистрация cvar, словарей и hook-ов изменения cvar.
 public plugin_init()
 {
 	register_plugin("Slots Reservation", AMXX_VERSION_STR, "AMXX Dev Team");
@@ -26,12 +31,25 @@ public plugin_init()
 	register_dictionary("adminslots.txt");
 	register_dictionary("common.txt");
 
-	hook_cvar_change(create_cvar("amx_reservation", "0", FCVAR_PROTECTED, fmt("%L", LANG_SERVER, "CVAR_RESERVATION"), .has_min = true, .min_val = 0.0, .has_max = true, .max_val = float(MaxClients - 1)), "@OnReservationChange");
-	hook_cvar_change(create_cvar("amx_hideslots"  , "0", FCVAR_NONE     , fmt("%L", LANG_SERVER, "CVAR_HIDESLOTS")  , .has_min = true, .min_val = 0.0, .has_max = true, .max_val = 1.0), "@OnHideSlotsChange");
+	CvarHandleReservation = create_cvar("amx_reservation", "0", FCVAR_PROTECTED, fmt("%L", LANG_SERVER, "CVAR_RESERVATION"), .has_min = true, .min_val = 0.0, .has_max = true, .max_val = float(MaxClients - 1));
+	CvarHandleHideSlots = create_cvar("amx_hideslots", "0", FCVAR_NONE, fmt("%L", LANG_SERVER, "CVAR_HIDESLOTS"), .has_min = true, .min_val = 0.0, .has_max = true, .max_val = 1.0);
+
+	hook_cvar_change(CvarHandleReservation, "@OnReservationChange");
+	hook_cvar_change(CvarHandleHideSlots, "@OnHideSlotsChange");
 
 	CvarHandleMaxVisiblePlayers = get_cvar_pointer("sv_visiblemaxplayers");
 }
 
+// Читает текущие cvar после загрузки конфигов и синхронизирует видимые слоты.
+public plugin_cfg()
+{
+	CvarReservation = get_pcvar_num(CvarHandleReservation);
+	CvarHideSlots = get_pcvar_num(CvarHandleHideSlots);
+
+	setVisibleSlots();
+}
+
+// Обновляет кэш amx_reservation и пересчитывает видимость слотов.
 @OnReservationChange(const handle, const oldValue[], const newValue[])
 {
 	CvarReservation = strtol(newValue);
@@ -39,6 +57,7 @@ public plugin_init()
 	setVisibleSlots();
 }
 
+// Обновляет кэш amx_hideslots и пересчитывает видимость слотов.
 @OnHideSlotsChange(const handle, const oldValue[], const newValue[])
 {
 	CvarHideSlots = strtol(newValue);
@@ -46,16 +65,20 @@ public plugin_init()
 	setVisibleSlots();
 }
 
+// Вызывается при авторизации игрока: может применить kick по политике резервных слотов.
 public client_authorized(id)
 {
 	setVisibleSlots(id);
 }
 
+// Вызывается при выходе игрока: пересчитывает видимые слоты.
 public client_remove(id)
 {
 	setVisibleSlots();
 }
 
+// Основная логика резервирования и скрытия слотов.
+// playerId == 0 означает глобальный пересчёт (не привязан к конкретному подключению).
 setVisibleSlots(const playerId = 0)
 {
 	if ((playerId == 0 && !CvarHideSlots) || !CvarReservation)
@@ -99,11 +122,19 @@ setVisibleSlots(const playerId = 0)
 	resetVisibleSlots(maxVisiblePlayers);
 }
 
+// Изменяет sv_visiblemaxplayers только при необходимости.
 resetVisibleSlots(value)
 {
+	new const currentValue = get_pcvar_num(CvarHandleMaxVisiblePlayers);
+
 	if (value == MaxClients)
 	{
 		value = -1; // Default sv_visiblemaxplayers value.
+	}
+
+	if (currentValue == value)
+	{
+		return;
 	}
 
 	set_pcvar_num(CvarHandleMaxVisiblePlayers, value);
