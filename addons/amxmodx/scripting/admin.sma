@@ -587,7 +587,18 @@ loadSettings(szFilename[])
 			
 			// not enough parameters
 			// Поддержка старого формата (4 поля) и нового формата с периодом действия (5-е поле).
-			if (parse(Text,AuthData,charsmax(AuthData),Password,charsmax(Password),Access,charsmax(Access),Flags,charsmax(Flags),Validity,charsmax(Validity)) < 2)
+			// Минимально валидная запись обязана содержать 4 поля:
+			// auth, password, access flags, account flags.
+			new parsed = parse(Text,AuthData,charsmax(AuthData),Password,charsmax(Password),Access,charsmax(Access),Flags,charsmax(Flags),Validity,charsmax(Validity))
+
+			if (parsed < 4)
+			{
+				if (TempFile)
+					fputs(TempFile, RawText)
+				continue;
+			}
+
+			if (!AuthData[0] || !Access[0] || !Flags[0])
 			{
 				if (TempFile)
 					fputs(TempFile, RawText)
