@@ -17,11 +17,16 @@
 // This is not a dynamic array because it would be bad for 24/7 map servers.
 #define OLD_CONNECTION_QUEUE 10
 
+// Id администратора, инициировавшего pause/unpause.
 new g_pauseCon
+// Временное сохранение значения cvar `pausable`, чтобы восстановить после команды pause.
 new Float:g_pausAble
+// Текущее состояние паузы сервера (переключается в cmdLBack).
 new bool:g_Paused
+// Флаг "разрешения" для callback `pauseAck`, чтобы его нельзя было вызвать извне.
 new bool:g_PauseAllowed = false
 
+// Указатели на cvar'ы, получаемые в plugin_init.
 new pausable;
 new rcon_password;
 new timelimit;
@@ -32,12 +37,16 @@ new g_Names[OLD_CONNECTION_QUEUE][MAX_NAME_LENGTH];
 new g_SteamIDs[OLD_CONNECTION_QUEUE][32];
 new g_IPs[OLD_CONNECTION_QUEUE][32];
 new g_Access[OLD_CONNECTION_QUEUE];
+// g_Tracker — индекс кольцевого буфера, g_Size — фактически заполненное количество записей.
 new g_Tracker;
 new g_Size;
 
+// Хранилище временных банов: ключ (auth/ip) -> authid администратора, выполнившего ban.
 public Trie:g_tempBans
+// Список xvar'ов, доступных только RCON (эмуляция protected-флага для xvar).
 new Trie:g_tXvarsFlags;
 
+// Сохраняет информацию об отключившемся игроке в кольцевой буфер "последних подключений".
 stock InsertInfo(id)
 {
 	
@@ -110,6 +119,7 @@ stock InsertInfo(id)
 	g_Access[target] = get_user_flags(id);
 
 }
+// Возвращает запись из кольцевого буфера по логическому индексу (0..g_Size-1).
 stock GetInfo(i, name[], namesize, auth[], authsize, ip[], ipsize, &access)
 {
 	if (i >= g_Size)
@@ -231,6 +241,72 @@ isCommandArgSafe(const arg[])
 	return contain(arg, ";") == -1 && contain(arg, "^n") == -1;
 }
 
+stock bool:isValidIPv4(const ip[])
+{
+	// Разрешаем только строгий IPv4 в формате X.X.X.X без лишних символов и
+	// без октетов вне диапазона 0..255.
+	new len = strlen(ip)
+	if (!len || len > 31)
+		return false
+
+	new dots, partLen, partValue
+
+	for (new i = 0; i < len; i++)
+	{
+		new c = ip[i]
+
+		if (c == '.')
+		{
+			if (!partLen || partLen > 3 || partValue > 255)
+				return false
+
+			if (partLen > 1 && partValue < 10)
+				return false
+
+			if (partLen > 2 && partValue < 100)
+				return false
+
+			dots++
+			partLen = 0
+			partValue = 0
+			continue
+		}
+
+		if (c < '0' || c > '9')
+			return false
+
+		partValue = (partValue * 10) + (c - '0')
+		partLen++
+
+		if (partLen > 3)
+			return false
+	}
+
+	if (dots != 3 || !partLen || partValue > 255)
+		return false
+
+	if (partLen > 1 && partValue < 10)
+		return false
+
+	if (partLen > 2 && partValue < 100)
+		return false
+
+	return true
+}
+
+stock bool:isSafeNick(const name[])
+{
+	// Для смены ника запрещаем пустую строку, разделители команд и '^'-escape.
+	new nick[32]
+	copy(nick, charsmax(nick), name)
+	trim(nick)
+
+	if (!nick[0])
+		return false
+
+	return isCommandArgSafe(nick) && contain(nick, "^") == -1
+}
+
 public cmdUnban(id, level, cid)
 {
 	if (!cmd_access(id, level, cid, 2))
@@ -254,6 +330,13 @@ public cmdUnban(id, level, cid)
 	
 	if (contain(arg, ".") != -1)
 	{
+		// removeip идёт через server_cmd, поэтому валидируем аргумент строго как IPv4.
+		if (!isValidIPv4(arg))
+		{
+			console_print(id, "%l", "CL_NOT_FOUND")
+			return PLUGIN_HANDLED
+		}
+
 		server_cmd("removeip ^"%s^";writeip", arg)
 		console_print(id, "[AMXX] %L", id, "IP_REMOVED", arg)
 	} else {
@@ -329,6 +412,8 @@ public cmdAddBan(id, level, cid)
 			isip = true;
 		}
 		
+		// Для неркон-админа разрешаем addban только по "недавно отключившимся" игрокам,
+		// чтобы нельзя было произвольно банить чужие auth/ip мимо иммунитета.
 		// Scan the disconnection queue
 		if (isip)
 		{
@@ -389,6 +474,13 @@ public cmdAddBan(id, level, cid)
 	// User has access to ban their target
 	if (contain(arg, ".") != -1)
 	{
+		// addip выполняется через строковую команду, поэтому пропускаем только строгий IPv4.
+		if (!isValidIPv4(arg))
+		{
+			console_print(id, "%l", "CL_NOT_FOUND")
+			return PLUGIN_HANDLED;
+		}
+
 		server_cmd("addip ^"%s^" ^"%s^";wait;writeip", minutes, arg)
 		console_print(id, "[AMXX] Ip ^"%s^" added to ban list", arg)
 	} else {
@@ -546,7 +638,7 @@ public cmdBanIP(id, level, cid)
 		formatex(temp, charsmax(temp), "%L", player, "FOR_MIN", minutes)
 	else
 		formatex(temp, charsmax(temp), "%L", player, "PERM")
-	format(banned, 15, "%L", player, "BANNED")
+	format(banned, charsmax(banned), "%L", player, "BANNED")
 
 	new address[32]
 	get_user_ip(player, address, charsmax(address), 1)
@@ -1091,6 +1183,7 @@ public cmdCfg(id, level, cid)
 
 public cmdLBack()
 {
+	// Callback вызывается только после cmdPause через client_cmd("pause;pauseAck").
 	if (!g_PauseAllowed)
 		return PLUGIN_CONTINUE	
 
@@ -1132,6 +1225,7 @@ public cmdPause(id, level, cid)
 		return PLUGIN_HANDLED
 	}
 
+	// Временно разрешаем pausable, иначе pause может быть заблокирован серверной настройкой.
 	set_pcvar_float(pausable, 1.0)
 	g_PauseAllowed = true
 	client_cmd(slayer, "pause;pauseAck")
@@ -1315,6 +1409,14 @@ public cmdNick(id, level, cid)
 
 	read_argv(1, arg1, charsmax(arg1))
 	read_argv(2, arg2, charsmax(arg2))
+	trim(arg2)
+
+	// Базовая защита от пустых/небезопасных имён перед set_user_info.
+	if (!isSafeNick(arg2))
+	{
+		console_print(id, "%l", "CL_NOT_FOUND")
+		return PLUGIN_HANDLED
+	}
 
 	new player = cmd_target(id, arg1, CMDTARGET_OBEY_IMMUNITY | CMDTARGET_ALLOW_SELF)
 	
