@@ -14,13 +14,16 @@
 #include <amxmodx>
 #include <amxmisc>
 
+// Кэш значений cvar для логики резерва (обновляется при старте и через hook).
 new CvarReservation;
 new CvarHideSlots;
 
-new CvarHandleReservation;
-new CvarHandleHideSlots;
-new CvarHandleMaxVisiblePlayers;
+// Хэндлы cvar.
+new CvarHandleReservation; // amx_reservation: количество зарезервированных слотов.
+new CvarHandleHideSlots; // amx_hideslots: скрывать резервные слоты в браузере серверов.
+new CvarHandleMaxVisiblePlayers; // sv_visiblemaxplayers: видимое число слотов в браузере серверов.
 
+// Точка входа плагина: регистрация cvar, словарей и hook-ов изменения cvar.
 public plugin_init()
 {
 	register_plugin("Slots Reservation", AMXX_VERSION_STR, "AMXX Dev Team");
@@ -37,6 +40,7 @@ public plugin_init()
 	CvarHandleMaxVisiblePlayers = get_cvar_pointer("sv_visiblemaxplayers");
 }
 
+// Читает текущие cvar после загрузки конфигов и синхронизирует видимые слоты.
 public plugin_cfg()
 {
 	CvarReservation = get_pcvar_num(CvarHandleReservation);
@@ -45,6 +49,7 @@ public plugin_cfg()
 	setVisibleSlots();
 }
 
+// Обновляет кэш amx_reservation и пересчитывает видимость слотов.
 @OnReservationChange(const handle, const oldValue[], const newValue[])
 {
 	CvarReservation = strtol(newValue);
@@ -52,6 +57,7 @@ public plugin_cfg()
 	setVisibleSlots();
 }
 
+// Обновляет кэш amx_hideslots и пересчитывает видимость слотов.
 @OnHideSlotsChange(const handle, const oldValue[], const newValue[])
 {
 	CvarHideSlots = strtol(newValue);
@@ -59,16 +65,20 @@ public plugin_cfg()
 	setVisibleSlots();
 }
 
+// Вызывается при авторизации игрока: может применить kick по политике резервных слотов.
 public client_authorized(id)
 {
 	setVisibleSlots(id);
 }
 
+// Вызывается при выходе игрока: пересчитывает видимые слоты.
 public client_remove(id)
 {
 	setVisibleSlots();
 }
 
+// Основная логика резервирования и скрытия слотов.
+// playerId == 0 означает глобальный пересчёт (не привязан к конкретному подключению).
 setVisibleSlots(const playerId = 0)
 {
 	if ((playerId == 0 && !CvarHideSlots) || !CvarReservation)
@@ -112,6 +122,7 @@ setVisibleSlots(const playerId = 0)
 	resetVisibleSlots(maxVisiblePlayers);
 }
 
+// Изменяет sv_visiblemaxplayers только при необходимости.
 resetVisibleSlots(value)
 {
 	new const currentValue = get_pcvar_num(CvarHandleMaxVisiblePlayers);
