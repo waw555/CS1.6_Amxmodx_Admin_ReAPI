@@ -193,9 +193,6 @@ public checkVotes()
 
 public voteCount(id, key)
 {
-	if (key < 0 || key >= sizeof(g_voteCount))
-		return PLUGIN_HANDLED
-
 	if (get_cvar_num("amx_vote_answers"))
 	{
 		new name[MAX_NAME_LENGTH]
@@ -263,7 +260,7 @@ public cmdVoteMap(id, level, cid)
 	
 	if (g_validMaps > 1)
 	{
-		keys = 0
+		keys = MENU_KEY_0
 		len = format(menu_msg, charsmax(menu_msg), g_coloredMenus ? "\y%L: \w^n^n" : "%L: ^n^n", LANG_SERVER, "CHOOSE_MAP")
 		new temp[128]
 		
@@ -274,6 +271,7 @@ public cmdVoteMap(id, level, cid)
 			keys |= (1<<a)
 		}
 		
+		format(menu_msg[len], charsmax(menu_msg) - len, "^n0.  %L", LANG_SERVER, "NONE")
 		g_yesNoVote = 0
 	} else {
 		new lChangeMap[32], lYes[16], lNo[16]
