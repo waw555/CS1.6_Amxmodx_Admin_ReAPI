@@ -33,8 +33,6 @@ new PLUGINNAME[] = "AMX Mod X"
 #define ADMIN_NAME		(1<<4)
 
 new bool:g_CaseSensitiveName[MAX_PLAYERS + 1];
-<<<<<<< HEAD
-=======
 
 bool:is_valid_ipv4(const ip[])
 {
@@ -70,7 +68,6 @@ bool:is_valid_ipv4(const ip[])
 
 	return dots == 3 && digits >= 1 && digits <= 3
 }
->>>>>>> parent of 08bb526 (Merge pull request #2 from waw555/codex/add-comments-to-functions-in-admin.sma)
 
 // pcvars
 new amx_mode;
@@ -213,29 +210,10 @@ public addadminfn(id, level, cid)
 	}
 	else if (idtype & ADMIN_IPADDR)
 	{
-		new len = strlen(arg)
-		new dots, chars
-		
-		for (new i = 0; i < len; i++)
+		if (!is_valid_ipv4(arg))
 		{
-			if (arg[i] == '.')
-			{
-				if (!chars || chars > 3)
-					break
-				
-				if (++dots > 3)
-					break
-				
-				chars = 0
-			} else {
-				chars++
-			}
-			
-			if (dots != 3 || !chars || chars > 3)
-			{
-				idtype |= ADMIN_LOOKUP
-				player = find_player("dh", arg)
-			}
+			idtype |= ADMIN_LOOKUP
+			player = find_player("dh", arg)
 		}
 	}
 	
