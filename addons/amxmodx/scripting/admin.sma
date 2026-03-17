@@ -33,207 +33,6 @@ new PLUGINNAME[] = "AMX Mod X"
 #define ADMIN_NAME		(1<<4)
 
 new bool:g_CaseSensitiveName[MAX_PLAYERS + 1];
-new bool:g_AdminHasValidity[1024];
-new g_AdminValidity[1024][64];
-
-/**
- * Сбрасывает информацию о периодах действия админских аккаунтов.
- */
-resetAdminValidity()
-{
-	for (new i = 0; i < sizeof(g_AdminHasValidity); i++)
-	{
-		g_AdminHasValidity[i] = false
-		g_AdminValidity[i][0] = '^0'
-	}
-}
-
-/**
- * Проверяет високосный ли год.
- */
-bool:is_leap_year(year)
-{
-	return ((year % 4 == 0 && year % 100 != 0) || year % 400 == 0)
-}
-
-/**
- * Проверяет, задано ли значение в виде количества дней доступа.
- */
-bool:is_validity_days_value(const value[], &days)
-{
-	if (!value[0])
-		return false
-
-	for (new i = 0; value[i]; i++)
-	{
-		if (value[i] < '0' || value[i] > '9')
-			return false
-	}
-
-	days = str_to_num(value)
-
-	return days > 0
-}
-
-/**
- * Формирует период действия от сегодняшней даты на указанное число дней.
- */
-build_validity_range_from_days(days, output[], len)
-{
-	new start[16], finish[16]
-	new now = get_systime()
-
-	format_time(start, charsmax(start), "%d.%m.%Y", now)
-	format_time(finish, charsmax(finish), "%d.%m.%Y", now + ((days - 1) * 86400))
-
-	formatex(output, len, "%s - %s", start, finish)
-}
-
-/**
- * Возвращает количество дней в месяце указанного года.
- */
-days_in_month(month, year)
-{
-	static const MonthDays[] = {31,28,31,30,31,30,31,31,30,31,30,31}
-
-	if (month == 2 && is_leap_year(year))
-		return 29
-
-	return MonthDays[month - 1]
-}
-
-/**
- * Преобразует дату формата dd.mm.yyyy в целое число yyyymmdd.
- */
-bool:parse_date_yyyymmdd(const input[], &dateValue)
-{
-	if (strlen(input) != 10)
-		return false
-
-	if (input[2] != '.' || input[5] != '.')
-		return false
-
-	new day[3], month[3], year[5]
-
-	copy(day, charsmax(day), input)
-	day[2] = '^0'
-
-	copy(month, charsmax(month), input[3])
-	month[2] = '^0'
-
-	copy(year, charsmax(year), input[6])
-	year[4] = '^0'
-
-	if (strlen(day) != 2 || strlen(month) != 2 || strlen(year) != 4)
-		return false
-
-	for (new i = 0; i < 2; i++)
-	{
-		if (day[i] < '0' || day[i] > '9' || month[i] < '0' || month[i] > '9')
-			return false
-	}
-
-	for (new i = 0; i < 4; i++)
-	{
-		if (year[i] < '0' || year[i] > '9')
-			return false
-	}
-
-	new iDay = str_to_num(day)
-	new iMonth = str_to_num(month)
-	new iYear = str_to_num(year)
-
-	if (iYear < 1970 || iMonth < 1 || iMonth > 12)
-		return false
-
-	new maxDay = days_in_month(iMonth, iYear)
-
-	if (iDay < 1 || iDay > maxDay)
-		return false
-
-	dateValue = (iYear * 10000) + (iMonth * 100) + iDay
-
-	return true
-}
-
-/**
- * Проверяет активен ли срок действия админки.
- * Формат: "dd.mm.yyyy - dd.mm.yyyy", значение "0" означает бессрочно.
- */
-bool:is_admin_valid_now(const validity[])
-{
-	if (!validity[0] || equal(validity, "0"))
-		return true
-
-	new validityCopy[64]
-	copy(validityCopy, charsmax(validityCopy), validity)
-	trim(validityCopy)
-
-	new startRaw[16], endRaw[16]
-	new separatorPos = contain(validityCopy, " - ")
-
-	if (separatorPos == -1)
-		return false
-
-	copy(startRaw, charsmax(startRaw), validityCopy)
-	startRaw[separatorPos] = '^0'
-	copy(endRaw, charsmax(endRaw), validityCopy[separatorPos + 3])
-	trim(startRaw)
-	trim(endRaw)
-
-	new startDate, endDate
-
-	if (!parse_date_yyyymmdd(startRaw, startDate) || !parse_date_yyyymmdd(endRaw, endDate))
-		return false
-
-	new nowDateRaw[16]
-	format_time(nowDateRaw, charsmax(nowDateRaw), "%d.%m.%Y")
-
-	new nowDate
-
-	if (!parse_date_yyyymmdd(nowDateRaw, nowDate))
-		return false
-
-	return (nowDate >= startDate && nowDate <= endDate)
-}
-
-/**
- * Проверяет корректность IPv4 адреса.
- */
-bool:is_valid_ipv4(const ip[])
-{
-	new len = strlen(ip)
-
-	if (len < 7 || len > 15)
-		return false
-
-	new dots, digits
-
-	for (new i = 0; i < len; i++)
-	{
-		if (ip[i] == '.')
-		{
-			if (digits < 1 || digits > 3)
-				return false
-
-			dots++
-			digits = 0
-		}
-		else if (ip[i] >= '0' && ip[i] <= '9')
-		{
-			digits++
-
-			if (digits > 3)
-				return false
-		}
-		else
-		{
-			return false
-		}
-	}
-
-	return dots == 3 && digits >= 1 && digits <= 3
-}
 
 // pcvars
 new amx_mode;
@@ -242,7 +41,6 @@ new amx_default_access;
 
 public plugin_init()
 {
-	// Инициализация плагина и регистрация всех cvar/команд.
 #if defined USING_SQL
 	register_plugin("Admin Base (SQL)", AMXX_VERSION_STR, "AMXX Dev Team")
 #else
@@ -298,18 +96,10 @@ public plugin_init()
 	loadSettings(configsDir)					// Load admins accounts
 #endif
 }
-
-/**
- * Сбрасывает флаг чувствительности имени при подключении игрока.
- */
 public client_connect(id)
 {
 	g_CaseSensitiveName[id] = false;
 }
-
-/**
- * Консольная команда amx_addadmin: добавляет администратора в users.ini.
- */
 public addadminfn(id, level, cid)
 {
 	if (!cmd_access(id, level, cid, 3))
@@ -385,10 +175,29 @@ public addadminfn(id, level, cid)
 	}
 	else if (idtype & ADMIN_IPADDR)
 	{
-		if (!is_valid_ipv4(arg))
+		new len = strlen(arg)
+		new dots, chars
+		
+		for (new i = 0; i < len; i++)
 		{
-			idtype |= ADMIN_LOOKUP
-			player = find_player("dh", arg)
+			if (arg[i] == '.')
+			{
+				if (!chars || chars > 3)
+					break
+				
+				if (++dots > 3)
+					break
+				
+				chars = 0
+			} else {
+				chars++
+			}
+			
+			if (dots != 3 || !chars || chars > 3)
+			{
+				idtype |= ADMIN_LOOKUP
+				player = find_player("dh", arg)
+			}
 		}
 	}
 	
@@ -454,7 +263,6 @@ public addadminfn(id, level, cid)
 
 AddAdmin(id, auth[], accessflags[], password[], flags[], comment[]="")
 {
-	// Добавляет нового администратора в users.ini или SQL (если включено).
 #if defined USING_SQL
 	new error[128], errno
 
@@ -546,36 +354,23 @@ AddAdmin(id, auth[], accessflags[], password[], flags[], comment[]="")
 
 loadSettings(szFilename[])
 {
-	// Загружает администраторов из users.ini в память AMXX.
 	new File=fopen(szFilename,"r");
 	
 	if (File)
 	{
-		resetAdminValidity()
-
 		new Text[512];
-		new RawText[512];
-		new TempFilename[128];
 		new Flags[32];
 		new Access[32]
 		new AuthData[44];
 		new Password[32];
-		new Validity[64];
-		new bool:NeedRewrite = false
 		
-		formatex(TempFilename, charsmax(TempFilename), "%s.tmp", szFilename)
-		new TempFile = fopen(TempFilename, "wt")
-		
-		while (fgets(File, RawText, charsmax(RawText)))
+		while (fgets(File, Text, charsmax(Text)))
 		{
-			copy(Text, charsmax(Text), RawText)
 			trim(Text);
 			
 			// comment
 			if (Text[0]==';') 
 			{
-				if (TempFile)
-					fputs(TempFile, RawText)
 				continue;
 			}
 			
@@ -583,84 +378,19 @@ loadSettings(szFilename[])
 			Access[0]=0;
 			AuthData[0]=0;
 			Password[0]=0;
-			Validity[0]=0;
 			
 			// not enough parameters
-			// Поддержка старого формата (4 поля) и нового формата с периодом действия (5-е поле).
-			// Минимально валидная запись обязана содержать 4 поля:
-			// auth, password, access flags, account flags.
-			new parsed = parse(Text,AuthData,charsmax(AuthData),Password,charsmax(Password),Access,charsmax(Access),Flags,charsmax(Flags),Validity,charsmax(Validity))
-
-			if (parsed < 4)
+			if (parse(Text,AuthData,charsmax(AuthData),Password,charsmax(Password),Access,charsmax(Access),Flags,charsmax(Flags)) < 2)
 			{
-				if (TempFile)
-					fputs(TempFile, RawText)
 				continue;
-			}
-
-			if (!AuthData[0] || !Access[0] || !Flags[0])
-			{
-				if (TempFile)
-					fputs(TempFile, RawText)
-				continue;
-			}
-
-			trim(Validity)
-
-			new days
-			new bool:RewroteCurrent = false
-
-			// Если в поле срока указано число (например "30"), считаем это количеством дней от сегодня.
-			if (is_validity_days_value(Validity, days))
-			{
-				build_validity_range_from_days(days, Validity, charsmax(Validity))
-				NeedRewrite = true
-				RewroteCurrent = true
 			}
 			
 			admins_push(AuthData,Password,read_flags(Access),read_flags(Flags));
-
-			// Сохраняем период действия для записи, если он указан.
-			if (AdminCount < sizeof(g_AdminHasValidity))
-			{
-				if (Validity[0])
-				{
-					g_AdminHasValidity[AdminCount] = true
-					copy(g_AdminValidity[AdminCount], charsmax(g_AdminValidity[]), Validity)
-				}
-			}
-
-			if (TempFile)
-			{
-				if (RewroteCurrent)
-				{
-					fprintf(TempFile, "^"%s^" ^"%s^" ^"%s^" ^"%s^" ^"%s^"^n", AuthData, Password, Access, Flags, Validity)
-				}
-				else
-				{
-					fputs(TempFile, RawText)
-				}
-			}
 
 			AdminCount++;
 		}
 		
 		fclose(File);
-		
-		if (TempFile)
-		{
-			fclose(TempFile)
-
-			if (NeedRewrite)
-			{
-				delete_file(szFilename)
-				rename_file(TempFilename, szFilename, 1)
-			}
-			else
-			{
-				delete_file(TempFilename)
-			}
-		}
 	}
 
 	if (AdminCount == 1)
@@ -676,9 +406,6 @@ loadSettings(szFilename[])
 }
 
 #if defined USING_SQL
-/**
- * Загружает администраторов из SQL-базы (с fallback на users.ini).
- */
 public adminSql()
 {
 	new table[32], error[128], type[12], errno
@@ -762,11 +489,10 @@ public adminSql()
 			server_print("[AMXX] %L", LANG_SERVER, "SQL_LOADED_ADMINS", AdminCount)
 		}
 		
+		SQL_FreeHandle(query)
+		SQL_FreeHandle(sql)
+		SQL_FreeHandle(info)
 	}
-
-	SQL_FreeHandle(query)
-	SQL_FreeHandle(sql)
-	SQL_FreeHandle(info)
 	
 	return PLUGIN_HANDLED
 }
@@ -774,7 +500,6 @@ public adminSql()
 
 public cmdReload(id, level, cid)
 {
-	// Полностью перезагружает список админов и пересчитывает права онлайн-игроков.
 	if (!cmd_access(id, level, cid, 1))
 		return PLUGIN_HANDLED
 
@@ -782,7 +507,6 @@ public cmdReload(id, level, cid)
 	remove_user_flags(0, read_flags("z"))
 	
 	admins_flush();
-	resetAdminValidity();
 
 #if !defined USING_SQL
 	new filename[128]
@@ -832,7 +556,6 @@ public cmdReload(id, level, cid)
 
 getAccess(id, name[], authid[], ip[], password[])
 {
-	// Ищет соответствующую админ-запись и выставляет права игроку.
 	new index = -1
 	new result = 0
 	
@@ -849,12 +572,6 @@ getAccess(id, name[], authid[], ip[], password[])
 	{
 		Flags=admins_lookup(i,AdminProp_Flags);
 		admins_lookup(i,AdminProp_Auth,AuthData,charsmax(AuthData));
-
-		// Если для записи задан период действия и он неактивен — пропускаем запись.
-		if (i < sizeof(g_AdminHasValidity) && g_AdminHasValidity[i] && !is_admin_valid_now(g_AdminValidity[i]))
-		{
-			continue
-		}
 		
 		if (Flags & FLAG_AUTHID)
 		{
@@ -991,7 +708,6 @@ getAccess(id, name[], authid[], ip[], password[])
 
 accessUser(id, name[] = "")
 {
-	// Проверяет пользователя и применяет к нему права/ограничения.
 	remove_user_flags(id)
 	
 	new userip[32], userauthid[32], password[32], passfield[32], username[MAX_NAME_LENGTH]
@@ -1039,7 +755,6 @@ accessUser(id, name[] = "")
 
 public client_infochanged(id)
 {
-	// Реакция на изменение имени: перепроверяем доступы при необходимости.
 	if (!is_user_connected(id) || !get_pcvar_num(amx_mode))
 	{
 		return PLUGIN_CONTINUE
@@ -1068,12 +783,10 @@ public client_infochanged(id)
 }
 
 public client_authorized(id)
-	// Вызывается после авторизации игрока и запускает проверку прав.
 	return get_pcvar_num(amx_mode) ? accessUser(id) : PLUGIN_CONTINUE
 
 public client_putinserver(id)
 {
-	// Для listen-сервера отдельно проверяем локального игрока.
 	if (!is_dedicated_server() && id == 1)
 		return get_pcvar_num(amx_mode) ? accessUser(id) : PLUGIN_CONTINUE
 	
